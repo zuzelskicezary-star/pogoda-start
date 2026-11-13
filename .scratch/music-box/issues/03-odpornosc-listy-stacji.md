@@ -6,8 +6,12 @@
 
 **Status:** ready-for-agent
 
-- [ ] Lista serwerów Radio Browser; błąd lub timeout jednego powoduje próbę następnego
-- [ ] Nieudane odświeżenie (wszystkie serwery) nie czyści listy, tylko zostawia ostatnią dobrą
-- [ ] Każda udana lista zapisywana w data/; przy starcie backend wczytuje ją, zanim zrobi pierwsze pobranie
-- [ ] Testy z atrapą transportu HTTP (bez sieci): przełączenie luster, zachowanie listy przy błędzie, start z kopii na dysku, pusta lista przy pierwszym starcie bez sieci
-- [ ] Wszystkie testy zielone
+- [x] Lista serwerów Radio Browser; błąd lub timeout jednego powoduje próbę następnego
+- [x] Nieudane odświeżenie (wszystkie serwery) nie czyści listy, tylko zostawia ostatnią dobrą
+- [x] Każda udana lista zapisywana w data/; przy starcie backend wczytuje ją, zanim zrobi pierwsze pobranie
+- [x] Testy z atrapą transportu HTTP (bez sieci): przełączenie luster, zachowanie listy przy błędzie, start z kopii na dysku, pusta lista przy pierwszym starcie bez sieci
+- [x] Wszystkie testy zielone
+
+## Comments
+
+- Decyzja przy implementacji: pusta odpowiedź lustra liczy się jak błąd (próba następnego, zostaje ostatnia dobra lista). Skutek: komunikat „Brak dostępnych stacji” pojawia się tylko przy pierwszym starcie bez kopii; jeśli operator zmieni kraj na taki bez stacji, zostanie stara lista. Uszkodzona kopia w data/ jest pomijana (start z pustą listą), a `--reset` nie kasuje kopii listy stacji.

@@ -23,7 +23,7 @@ def main():
     store = JsonStore()
     if args.reset:
         store.reset()
-    stations = RadioBrowserStations(country=args.stations_country, limit=args.stations_limit)
+    stations = RadioBrowserStations(country=args.stations_country, limit=args.stations_limit, store=store)
     stations.start()
     server = make_server(store, host=args.host, port=args.port, stations=stations)
     base = "http://localhost:%d" % server.server_address[1]
