@@ -6,15 +6,19 @@ so the API can be exercised without an HTTP server.
 
 import re
 
+from backend import musicbox
 from backend.catalog import get_apps_for_device
 from backend.ota import OtaService, UnknownBuild
 from backend.registry import DeviceNotFound, DeviceRegistry
 from backend.screens import AppNotFound, build_screen
+from backend.stations import StaticStations
 
 
 class Api:
-    def __init__(self, store):
+    def __init__(self, store, stations=None):
         self.store = store
+        self.stations = stations if stations is not None else StaticStations()
+        self.screens = {musicbox.APP_ID: musicbox.MusicBox(self.stations).screen}
         self.registry = DeviceRegistry(store)
         self.ota = OtaService(store, self.registry)
         self.routes = [
@@ -84,7 +88,7 @@ class Api:
     def app_screen(self, query, body, device_id, app_id):
         device = self.registry.get(device_id)
         apps = get_apps_for_device(self.store, device)
-        return 200, build_screen(device, apps, app_id, query)
+        return 200, build_screen(device, apps, app_id, query, self.screens)
 
     def ota_check(self, query, body):
         update = self.ota.check(

@@ -18,6 +18,12 @@ it the block takes its natural size):
 - ``{"type": "row" | "column", "children": [block, ...]}``
 - ``{"type": "text", "text": str, "style": "title" | "body" | "hint"}``
 - ``{"type": "button", "id": str, "label": str, "action": action}``
+- ``{"type": "image", "url": str | None, "color": "#rrggbb", "text": str}``:
+  the picture, or ``text`` on ``color`` when there is no url or it fails to load
+- ``{"type": "tile", "id": str, "label": str, "image": image, "action": action}``
+- ``{"type": "grid", "columns": int, "children": [block, ...]}``
+
+``focus`` may name any focusable block (button, tile).
 
 Actions:
 
@@ -52,6 +58,18 @@ def button(block_id, label, action, **extra):
     return dict(type="button", id=block_id, label=label, action=action, **extra)
 
 
+def image(url, color, fallback_text, **extra):
+    return dict(type="image", url=url, color=color, text=fallback_text, **extra)
+
+
+def tile(block_id, label, picture, action, **extra):
+    return dict(type="tile", id=block_id, label=label, image=picture, action=action, **extra)
+
+
+def grid(columns, *children, **extra):
+    return dict(type="grid", columns=columns, children=list(children), **extra)
+
+
 def open_screen(device_id, app_id, **params):
     path = screen_path(device_id, app_id)
     if params:
@@ -81,13 +99,13 @@ def default_screen(device, app, params):
     ))
 
 
-# Apps with a screen of their own register here: app id -> builder(device, app, params).
-SCREENS = {}
+def build_screen(device, apps, app_id, params, screens):
+    """``apps`` is what the device sees in the catalog; others are not found.
 
-
-def build_screen(device, apps, app_id, params):
-    """``apps`` is what the device sees in the catalog; others are not found."""
+    ``screens`` maps the id of an app with a screen of its own to its builder,
+    ``builder(device, app, params)``; other apps get the default screen.
+    """
     for app in apps:
         if app["id"] == app_id:
-            return SCREENS.get(app_id, default_screen)(device, app, params)
+            return screens.get(app_id, default_screen)(device, app, params)
     raise AppNotFound(app_id)

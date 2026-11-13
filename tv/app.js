@@ -103,33 +103,75 @@
     el("screen").setAttribute("data-view", view);
   }
 
+  function div(className, text) {
+    var node = document.createElement("div");
+    node.className = className;
+    if (text !== undefined) { node.textContent = text; }
+    return node;
+  }
+
+  function appendChildren(node, children) {
+    (children || []).forEach(function (child) {
+      var c = renderBlock(child);
+      if (!c) { return; }
+      if (typeof child.flex === "number") { c.style.flex = child.flex + " 1 0"; }
+      node.appendChild(c);
+    });
+  }
+
+  /* Focusable blocks: OK (or a click) runs their action. */
+  function makeFocusable(node, block) {
+    node.classList.add("focusable");
+    node.setAttribute("data-id", block.id);
+    node.addEventListener("click", function () {
+      if (!tv.app) { return; }
+      tv.app.focusId = block.id;
+      markFocus();
+      runAction(block.action);
+    });
+    return node;
+  }
+
+  /* The picture, or its text on its colour when there is none or it fails. */
+  function renderImage(block) {
+    var node = div("blk-image");
+    node.style.background = block.color || "#444";
+    function showText() {
+      node.innerHTML = "";
+      node.appendChild(div("blk-image-text", block.text || ""));
+    }
+    if (block.url) {
+      var img = document.createElement("img");
+      img.alt = block.text || "";
+      img.addEventListener("error", showText);
+      img.src = block.url;
+      node.appendChild(img);
+    } else {
+      showText();
+    }
+    return node;
+  }
+
   function renderBlock(block) {
     var node;
     if (!block) { return null; }
     if (block.type === "row" || block.type === "column") {
-      node = document.createElement("div");
-      node.className = "blk-" + block.type;
-      (block.children || []).forEach(function (child) {
-        var c = renderBlock(child);
-        if (!c) { return; }
-        if (typeof child.flex === "number") { c.style.flex = child.flex + " 1 0"; }
-        node.appendChild(c);
-      });
+      node = div("blk-" + block.type);
+      appendChildren(node, block.children);
+    } else if (block.type === "grid") {
+      node = div("blk-grid");
+      node.style.gridTemplateColumns = "repeat(" + Math.max(1, block.columns || 1) + ", minmax(0, 1fr))";
+      appendChildren(node, block.children);
     } else if (block.type === "text") {
-      node = document.createElement("div");
-      node.className = "blk-text " + (block.style || "body");
-      node.textContent = block.text;
+      node = div("blk-text " + (block.style || "body"), block.text);
+    } else if (block.type === "image") {
+      node = renderImage(block);
     } else if (block.type === "button") {
-      node = document.createElement("div");
-      node.className = "blk-button focusable";
-      node.textContent = block.label;
-      node.setAttribute("data-id", block.id);
-      node.addEventListener("click", function () {
-        if (!tv.app) { return; }
-        tv.app.focusId = block.id;
-        markFocus();
-        runAction(block.action);
-      });
+      node = makeFocusable(div("blk-button", block.label), block);
+    } else if (block.type === "tile") {
+      node = makeFocusable(div("blk-tile"), block);
+      if (block.image) { node.appendChild(renderImage(block.image)); }
+      node.appendChild(div("blk-tile-label", block.label));
     } else {
       return null;
     }
@@ -148,6 +190,7 @@
   function markFocus() {
     var current = focusedNode();
     focusables().forEach(function (n) { n.classList.toggle("focused", n === current); });
+    if (current && current.scrollIntoView) { current.scrollIntoView({ block: "nearest" }); }
   }
 
   function renderAppScreen() {

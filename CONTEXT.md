@@ -17,7 +17,7 @@ To, co telewizor pokazuje po otwarciu aplikacji, w całości opisane przez backe
 _Avoid_: widok, strona aplikacji
 
 **Blok**:
-Element ekranu aplikacji z zamkniętego słownika, który telewizor umie narysować (układ, tekst, obraz, kafelek, lista, przycisk).
+Element ekranu aplikacji z zamkniętego słownika, który telewizor umie narysować (układ, tekst, obraz, kafelek, siatka, lista, przycisk).
 _Avoid_: widget, komponent
 
 **Akcja**:
