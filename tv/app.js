@@ -286,7 +286,19 @@
       togglePause();
     } else if (action.type === "volume" && typeof action.step === "number") {
       changeVolume(action.step);
+    } else if (action.type === "post" && action.path) {
+      postAndRefresh(action.path, action.body);
     }
+  }
+
+  /* Send something to the backend, then show the screen as it is now. */
+  function postAndRefresh(path, body) {
+    var app = tv.app;
+    api("POST", path, body || {}).then(function () {
+      if (tv.app === app) { loadScreen(topEntry(), false); }
+    }, function (err) {
+      log("Nie udało się wysłać: " + err.message, "warn");
+    });
   }
 
   /* ---------- audio: streams play straight from the broadcaster ---------- */

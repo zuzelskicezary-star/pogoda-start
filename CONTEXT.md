@@ -46,3 +46,7 @@ _Avoid_: menu stacji, home radia
 Ekran Music Box po wybraniu stacji: grająca stacja, przyciski nawigujące i po prawej pozostałe stacje z listy.
 _Avoid_: player, ekran stacji
 
+**Ulubione**:
+Stacje oznaczone gwiazdką przez widza na danym telewizorze; kolejność listy stacji się nie zmienia.
+_Avoid_: zakładki, playlista
+

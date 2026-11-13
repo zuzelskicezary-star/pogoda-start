@@ -87,7 +87,7 @@ Telewizor nie wie nic o radiu. Każdy **ekran aplikacji** opisuje backend w JSON
 ## Out of Scope
 
 - RadioWave: zostaje bez zmian (pokazuje tylko nazwę).
-- Stacje spoza Polski, wybór stacji per region, wyszukiwanie, ulubione, gatunki.
+- Stacje spoza Polski, wybór stacji per region, wyszukiwanie, gatunki. (Ulubione dodane później: zgłoszenie 05.)
 - Proxy lub przekierowanie strumieni przez backend.
 - Zgłaszanie kliknięć i głosów do Radio Browser.
 - Zmiana ekranów innych aplikacji poza ekranem domyślnym z nazwą.

@@ -10,7 +10,7 @@ import hashlib
 import threading
 
 from backend.screens import (
-    back, button, column, grid, image, item_list, open_screen, row, screen, text, tile, toggle_pause, volume,
+    back, button, column, grid, image, item_list, open_screen, post, row, screen, text, tile, toggle_pause, volume,
 )
 
 APP_ID = "musicbox"
@@ -18,6 +18,8 @@ GRID_COLUMNS = 5
 EMPTY_TEXT = "Brak dostępnych stacji, spróbuj później"
 STREAM_ERROR_TEXT = "Ta stacja teraz nie nadaje. Wybierz inną."
 VOLUME_STEP = 10
+FAVOURITES = "favourites"  # runtime state: {device id: [station uuid, ...]}
+STAR = "★ "
 
 
 class StationNotFound(LookupError):
@@ -36,9 +38,33 @@ def station_image(station):
     return image(station["logo"], fallback_color(station["name"]), station["name"])
 
 
+def favourites_path(device_id):
+    return "/api/devices/%s/apps/%s/favourites" % (device_id, APP_ID)
+
+
+class Favourites:
+    """Favourite stations of each TV, kept in runtime state across restarts."""
+
+    def __init__(self, store):
+        self.store = store
+
+    def of(self, device_id):
+        return set(self.store.read(FAVOURITES, {}).get(device_id, []))
+
+    def mark(self, device_id, uuid, favourite):
+        with self.store.lock:
+            everyone = self.store.read(FAVOURITES, {})
+            mine = [u for u in everyone.get(device_id, []) if u != uuid]
+            if favourite:
+                mine.append(uuid)
+            everyone[device_id] = mine
+            self.store.save(FAVOURITES, everyone)
+
+
 class MusicBox:
-    def __init__(self, stations):
+    def __init__(self, stations, store):
         self.stations = stations
+        self.favourites = Favourites(store)
         # Every station seen so far, by uuid: a station that drops out of the
         # list on a refresh still has a player, so it keeps playing.
         self._known = {}
@@ -49,6 +75,13 @@ class MusicBox:
         if params.get("station"):
             return self.player(device, stations, params["station"])
         return self.station_grid(device, app, stations)
+
+    def mark_favourite(self, device, uuid, favourite):
+        """Add the station to (or remove it from) the device's favourites."""
+        self._current()
+        self._known_station(uuid)
+        self.favourites.mark(device["id"], uuid, favourite)
+        return {"station": uuid, "favourite": favourite}
 
     def _current(self):
         stations = self.stations.current()
@@ -66,8 +99,9 @@ class MusicBox:
     def station_grid(self, device, app, stations):
         if not stations:
             return screen(APP_ID, column(text(app["name"], style="title"), text(EMPTY_TEXT)))
+        starred = self.favourites.of(device["id"])
         tiles = [
-            tile("station-" + s["id"], s["name"], station_image(s),
+            tile("station-" + s["id"], label(s, starred), station_image(s),
                  open_screen(device["id"], APP_ID, station=s["id"]))
             for s in stations
         ]
@@ -83,6 +117,8 @@ class MusicBox:
         def switch_to(station):
             return open_screen(device["id"], APP_ID, replace=True, station=station["id"])
 
+        starred = self.favourites.of(device["id"])
+        is_favourite = playing["id"] in starred
         previous, next_station = neighbours(stations, playing)
         playback = row(
             button("prev", "⏮ Poprzednia", switch_to(previous)),
@@ -94,17 +130,23 @@ class MusicBox:
             button("volume-up", "🔊 +", volume(VOLUME_STEP)),
             button("back", "↩ Wróć do stacji", back()),
         )
+        favourite_button = button(
+            "favourite",
+            "★ Usuń z ulubionych" if is_favourite else "☆ Dodaj do ulubionych",
+            post(favourites_path(device["id"]), {"station": playing["id"], "favourite": not is_favourite}),
+        )
         now_playing = column(
             station_image(playing),
             text(playing["name"], style="title"),
             playback,
             sound_and_exit,
+            favourite_button,
             flex=3,
         )
         others = column(
             text("Pozostałe stacje", style="hint"),
             item_list(*[
-                tile("station-" + s["id"], s["name"], station_image(s), switch_to(s))
+                tile("station-" + s["id"], label(s, starred), station_image(s), switch_to(s))
                 for s in stations if s["id"] != playing["id"]
             ]),
             flex=2,
@@ -116,6 +158,11 @@ class MusicBox:
             keys={"chup": switch_to(next_station), "chdown": switch_to(previous)},
             stream={"url": playing["stream"], "error": STREAM_ERROR_TEXT},
         )
+
+
+def label(station, starred):
+    """The station's name, with a star when it is a favourite."""
+    return (STAR if station["id"] in starred else "") + station["name"]
 
 
 def neighbours(stations, playing):

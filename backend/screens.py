@@ -41,6 +41,8 @@ Actions:
 - ``{"type": "play", "url": str, "error": str}``: play a stream from its source
 - ``{"type": "toggle_pause"}``
 - ``{"type": "volume", "step": int}``: change the volume by ``step`` percent
+- ``{"type": "post", "path": "/api/...", "body": object}``: send ``body`` to the
+  backend, then refresh the current screen (keeping focus and sound)
 """
 
 from urllib.parse import quote, urlencode
@@ -112,6 +114,10 @@ def volume(step):
     return {"type": "volume", "step": step}
 
 
+def post(path, body):
+    return {"type": "post", "path": path, "body": body}
+
+
 def screen_path(device_id, app_id):
     return "/api/devices/%s/apps/%s/screen" % (quote(device_id, safe=""), quote(app_id, safe=""))
 
@@ -139,7 +145,13 @@ def build_screen(device, apps, app_id, params, screens):
     ``screens`` maps the id of an app with a screen of its own to its builder,
     ``builder(device, app, params)``; other apps get the default screen.
     """
+    app = find_app(apps, app_id)
+    return screens.get(app_id, default_screen)(device, app, params)
+
+
+def find_app(apps, app_id):
+    """The app among those the device sees in the catalog."""
     for app in apps:
         if app["id"] == app_id:
-            return screens.get(app_id, default_screen)(device, app, params)
+            return app
     raise AppNotFound(app_id)

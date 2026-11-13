@@ -257,3 +257,90 @@ class MusicBoxPlayerOverHttpTest(ServerTestCase):
         self.assertEqual(screen["stream"]["url"], "https://stream.example/c3")
         status, body = self.get_json("/api/devices/TV-006/apps/musicbox/screen?station=zzz")
         self.assertEqual((status, body["error"]), (404, "station_not_found"))
+
+
+FAVOURITES_PATH = "/api/devices/%s/apps/musicbox/favourites"
+
+
+def favourite(uuid, on=True, device_id="TV-006"):
+    return {"type": "post", "path": FAVOURITES_PATH % device_id, "body": {"station": uuid, "favourite": on}}
+
+
+class MusicBoxFavouritesTest(StoreTestCase):
+    def setUp(self):
+        super().setUp()
+        self.api = Api(self.store, stations=StaticStations(STATIONS))
+
+    def player(self, uuid, device_id="TV-006", api=None):
+        return (api or self.api).handle(
+            "GET", "/api/devices/%s/apps/musicbox/screen" % device_id, {"station": uuid})[1]
+
+    def grid(self, device_id="TV-006"):
+        return self.api.handle("GET", "/api/devices/%s/apps/musicbox/screen" % device_id)[1]
+
+    def mark(self, uuid, on=True, device_id="TV-006"):
+        return self.api.handle("POST", FAVOURITES_PATH % device_id, body={"station": uuid, "favourite": on})
+
+    def test_player_offers_to_add_the_station(self):
+        button = by_id(self.player("a1"), "favourite")
+        self.assertEqual(button["label"], "☆ Dodaj do ulubionych")
+        self.assertEqual(button["action"], favourite("a1"))
+
+    def test_adding_marks_the_station_with_a_star(self):
+        self.assertEqual(self.mark("a1"), (200, {"station": "a1", "favourite": True}))
+        self.assertEqual([t["label"] for t in blocks(self.grid(), "tile")],
+                         ["★ RMF FM", "Radio ZET", "Polskie Radio Trójka"])
+        other_list = blocks(self.player("b2"), "list")[0]["children"]
+        self.assertEqual([i["label"] for i in other_list], ["★ RMF FM", "Polskie Radio Trójka"])
+
+    def test_same_button_removes_the_station(self):
+        self.mark("a1")
+        button = by_id(self.player("a1"), "favourite")
+        self.assertEqual(button["label"], "★ Usuń z ulubionych")
+        self.assertEqual(button["action"], favourite("a1", on=False))
+        self.assertEqual(self.mark("a1", on=False), (200, {"station": "a1", "favourite": False}))
+        self.assertEqual(blocks(self.grid(), "tile")[0]["label"], "RMF FM")
+
+    def test_star_does_not_change_order_or_fallback_text(self):
+        self.mark("c3")
+        tiles = blocks(self.grid(), "tile")
+        self.assertEqual([t["id"] for t in tiles], ["station-a1", "station-b2", "station-c3"])
+        self.assertEqual(tiles[2]["image"]["text"], "Polskie Radio Trójka")
+
+    def test_favourites_belong_to_one_tv(self):
+        self.mark("a1", device_id="TV-006")
+        self.assertEqual(blocks(self.grid("TV-004"), "tile")[0]["label"], "RMF FM")
+
+    def test_favourites_survive_a_restart(self):
+        self.mark("b2")
+        restarted = Api(self.store, stations=StaticStations(STATIONS))
+        self.assertEqual(by_id(self.player("b2", api=restarted), "favourite")["label"], "★ Usuń z ulubionych")
+
+    def test_marking_twice_is_harmless(self):
+        self.mark("a1")
+        self.mark("a1")
+        self.mark("a1", on=False)
+        self.assertEqual(blocks(self.grid(), "tile")[0]["label"], "RMF FM")
+
+    def test_unknown_station_is_404(self):
+        status, body = self.mark("nope")
+        self.assertEqual((status, body["error"]), (404, "station_not_found"))
+
+    def test_unknown_tv_or_hidden_app_is_404(self):
+        self.assertEqual(self.mark("a1", device_id="TV-999")[1]["error"], "device_not_found")
+        self.assertEqual(self.mark("a1", device_id="TV-001")[1]["error"], "app_not_found")  # FW too old
+
+    def test_missing_fields_are_400(self):
+        self.assertEqual(self.api.handle("POST", FAVOURITES_PATH % "TV-006", body={"favourite": True})[0], 400)
+        self.assertEqual(self.api.handle("POST", FAVOURITES_PATH % "TV-006", body={"station": "a1"})[0], 400)
+
+
+class MusicBoxFavouritesOverHttpTest(ServerTestCase):
+    def make_stations(self):
+        return StaticStations(STATIONS)
+
+    def test_add_over_http(self):
+        status, body = self.post_json(FAVOURITES_PATH % "TV-006", {"station": "b2", "favourite": True})
+        self.assertEqual((status, body), (200, {"station": "b2", "favourite": True}))
+        _, screen = self.get_json("/api/devices/TV-006/apps/musicbox/screen")
+        self.assertEqual(blocks(screen, "tile")[1]["label"], "★ Radio ZET")
