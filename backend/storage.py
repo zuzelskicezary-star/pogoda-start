@@ -1,8 +1,9 @@
 """JSON file storage.
 
 Static reference data (models, releases, apps) is read from ``fixtures/``.
-Mutable state (the device registry) lives in a data directory and is seeded
-from the matching fixture on first use.
+Mutable state lives in a data directory: the device registry is seeded from
+the matching fixture on first use (``load``); state without a fixture, such as
+the saved Music Box station list, starts empty (``read``).
 """
 
 import json
@@ -29,9 +30,16 @@ class JsonStore:
     def load(self, name):
         """Return mutable state, seeding it from fixtures if missing."""
         with self.lock:
+            if not self._path(name).exists():
+                self.save(name, self.fixture(name))
+            return self.read(name)
+
+    def read(self, name, default=None):
+        """Return mutable state that has no fixture, or ``default`` if never saved."""
+        with self.lock:
             path = self._path(name)
             if not path.exists():
-                self.save(name, self.fixture(name))
+                return default
             with open(path, encoding="utf-8") as f:
                 return json.load(f)
 
@@ -45,11 +53,15 @@ class JsonStore:
             os.replace(tmp, path)
 
     def reset(self):
-        """Drop all mutable state; it will be re-seeded from fixtures."""
+        """Drop mutable state seeded from fixtures; it will be re-seeded.
+
+        State without a fixture (e.g. the saved station list) is kept.
+        """
         with self.lock:
             if self.data_dir.exists():
                 for path in self.data_dir.glob("*.json"):
-                    path.unlink()
+                    if (self.fixtures_dir / path.name).exists():
+                        path.unlink()
 
     def _path(self, name):
         return self.data_dir / (name + ".json")

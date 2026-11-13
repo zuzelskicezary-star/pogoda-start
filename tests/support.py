@@ -10,6 +10,7 @@ import urllib.request
 from pathlib import Path
 
 from backend.server import make_server
+from backend.stations import StaticStations
 from backend.storage import FIXTURES_DIR, JsonStore
 
 
@@ -32,12 +33,16 @@ class StoreTestCase(unittest.TestCase):
 class ServerTestCase(StoreTestCase):
     def setUp(self):
         super().setUp()
-        self.server = make_server(self.store, port=0, quiet=True)
+        self.server = make_server(self.store, port=0, quiet=True, stations=self.make_stations())
         thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
         thread.start()
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
         self.base_url = "http://127.0.0.1:%d" % self.server.server_address[1]
+
+    def make_stations(self):
+        """The Music Box station source; override to serve test stations."""
+        return StaticStations()
 
     def request(self, method, path, body=None):
         """Return (status, headers, raw bytes)."""

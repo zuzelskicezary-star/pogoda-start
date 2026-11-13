@@ -14,8 +14,8 @@ TV_DIR = REPO_ROOT / "tv"
 MAX_BODY_BYTES = 64 * 1024
 
 
-def make_server(store, host="127.0.0.1", port=8765, tv_dir=TV_DIR, quiet=False):
-    api = Api(store)
+def make_server(store, host="127.0.0.1", port=8765, tv_dir=TV_DIR, quiet=False, stations=None):
+    api = Api(store, stations=stations)
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "LumioBackend/1.0"

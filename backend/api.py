@@ -6,14 +6,21 @@ so the API can be exercised without an HTTP server.
 
 import re
 
+from backend import musicbox
+from backend.musicbox import StationNotFound
 from backend.catalog import get_apps_for_device
 from backend.ota import OtaService, UnknownBuild
 from backend.registry import DeviceNotFound, DeviceRegistry
+from backend.screens import AppNotFound, build_screen, find_app
+from backend.stations import StaticStations
 
 
 class Api:
-    def __init__(self, store):
+    def __init__(self, store, stations=None):
         self.store = store
+        self.stations = stations if stations is not None else StaticStations()
+        self.musicbox = musicbox.MusicBox(self.stations, store)
+        self.screens = {musicbox.APP_ID: self.musicbox.screen}
         self.registry = DeviceRegistry(store)
         self.ota = OtaService(store, self.registry)
         self.routes = [
@@ -22,6 +29,8 @@ class Api:
             ("GET", r"/api/devices/(?P<device_id>[\w-]+)", self.get_device),
             ("POST", r"/api/devices/(?P<device_id>[\w-]+)/report", self.report),
             ("GET", r"/api/devices/(?P<device_id>[\w-]+)/apps", self.device_apps),
+            ("GET", r"/api/devices/(?P<device_id>[\w-]+)/apps/(?P<app_id>[\w-]+)/screen", self.app_screen),
+            ("POST", r"/api/devices/(?P<device_id>[\w-]+)/apps/musicbox/favourites", self.musicbox_favourite),
             ("POST", r"/api/ota/check", self.ota_check),
             ("POST", r"/api/ota/download", self.ota_download),
         ]
@@ -41,6 +50,10 @@ class Api:
                 return handler(query=query, body=body, **match.groupdict())
             except DeviceNotFound as exc:
                 return 404, {"error": "device_not_found", "device_id": exc.args[0]}
+            except StationNotFound as exc:
+                return 404, {"error": "station_not_found", "station": exc.args[0]}
+            except AppNotFound as exc:
+                return 404, {"error": "app_not_found", "app_id": exc.args[0]}
             except UnknownBuild as exc:
                 return 404, {"error": "unknown_build", "build": exc.args[0]}
             except (KeyError, TypeError, ValueError) as exc:
@@ -76,6 +89,19 @@ class Api:
     def device_apps(self, query, body, device_id):
         device = self.registry.get(device_id)
         return 200, {"device_id": device_id, "apps": get_apps_for_device(self.store, device)}
+
+    def app_screen(self, query, body, device_id, app_id):
+        device = self.registry.get(device_id)
+        apps = get_apps_for_device(self.store, device)
+        return 200, build_screen(device, apps, app_id, query, self.screens)
+
+    def musicbox_favourite(self, query, body, device_id):
+        device = self.registry.get(device_id)
+        find_app(get_apps_for_device(self.store, device), musicbox.APP_ID)
+        station, favourite = body["station"], body["favourite"]
+        if not isinstance(station, str) or not isinstance(favourite, bool):
+            raise ValueError("station must be a string and favourite a boolean")
+        return 200, self.musicbox.mark_favourite(device, station, favourite)
 
     def ota_check(self, query, body):
         update = self.ota.check(
