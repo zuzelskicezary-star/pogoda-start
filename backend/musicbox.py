@@ -84,10 +84,12 @@ class MusicBox:
             return open_screen(device["id"], APP_ID, replace=True, station=station["id"])
 
         previous, next_station = neighbours(stations, playing)
-        controls = row(
+        playback = row(
             button("prev", "⏮ Poprzednia", switch_to(previous)),
             button("playpause", "⏯ Play / pauza", toggle_pause()),
             button("next", "Następna ⏭", switch_to(next_station)),
+        )
+        sound_and_exit = row(
             button("volume-down", "🔉 −", volume(-VOLUME_STEP)),
             button("volume-up", "🔊 +", volume(VOLUME_STEP)),
             button("back", "↩ Wróć do stacji", back()),
@@ -95,7 +97,8 @@ class MusicBox:
         now_playing = column(
             station_image(playing),
             text(playing["name"], style="title"),
-            controls,
+            playback,
+            sound_and_exit,
             flex=3,
         )
         others = column(
