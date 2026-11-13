@@ -20,6 +20,8 @@ STREAM_ERROR_TEXT = "Ta stacja teraz nie nadaje. Wybierz inną."
 VOLUME_STEP = 10
 FAVOURITES = "favourites"  # runtime state: {device id: [station uuid, ...]}
 STAR = "★ "
+FAVOURITES_VIEW = "favourites"  # ?view=favourites: only the device's favourite stations
+NO_FAVOURITES_TEXT = "Nie masz jeszcze ulubionych stacji. Dodaj je w odtwarzaczu przyciskiem ☆."
 
 
 class StationNotFound(LookupError):
@@ -71,10 +73,20 @@ class MusicBox:
         self._lock = threading.Lock()
 
     def screen(self, device, app, params):
-        stations = self._current()
+        """Grid or player, showing either all stations or only favourites.
+
+        Favourites always come first; in the favourites view the grid and the
+        player (previous/next, CH±, the list) contain nothing else.
+        """
+        favourites_only = params.get("view") == FAVOURITES_VIEW
+        starred = self.favourites.of(device["id"])
+        stations = favourites_first(self._current(), starred)
+        if favourites_only:
+            stations = [s for s in stations if s["id"] in starred]
+        view = {"view": FAVOURITES_VIEW} if favourites_only else {}
         if params.get("station"):
-            return self.player(device, stations, params["station"])
-        return self.station_grid(device, app, stations)
+            return self.player(device, stations, starred, view, params["station"])
+        return self.station_grid(device, app, stations, starred, view)
 
     def mark_favourite(self, device, uuid, favourite):
         """Add the station to (or remove it from) the device's favourites."""
@@ -96,28 +108,35 @@ class MusicBox:
                 raise StationNotFound(uuid)
             return self._known[uuid]
 
-    def station_grid(self, device, app, stations):
+    def station_grid(self, device, app, stations, starred, view):
+        title = text(app["name"], style="title")
+        if not stations and not view:
+            return screen(APP_ID, column(title, text(EMPTY_TEXT)))
+        if view:
+            switch_view = button("favourites-only", "Wszystkie stacje",
+                                 open_screen(device["id"], APP_ID, replace=True))
+        else:
+            switch_view = button("favourites-only", "★ Tylko ulubione",
+                                 open_screen(device["id"], APP_ID, replace=True, view=FAVOURITES_VIEW))
         if not stations:
-            return screen(APP_ID, column(text(app["name"], style="title"), text(EMPTY_TEXT)))
-        starred = self.favourites.of(device["id"])
+            return screen(APP_ID, column(title, switch_view, text(NO_FAVOURITES_TEXT)), focus=switch_view["id"])
         tiles = [
             tile("station-" + s["id"], label(s, starred), station_image(s),
-                 open_screen(device["id"], APP_ID, station=s["id"]))
+                 open_screen(device["id"], APP_ID, station=s["id"], **view))
             for s in stations
         ]
         return screen(
             APP_ID,
-            column(text(app["name"], style="title"), grid(GRID_COLUMNS, *tiles)),
+            column(title, switch_view, grid(GRID_COLUMNS, *tiles)),
             focus=tiles[0]["id"],
         )
 
-    def player(self, device, stations, uuid):
+    def player(self, device, stations, starred, view, uuid):
         playing = self._known_station(uuid)
 
         def switch_to(station):
-            return open_screen(device["id"], APP_ID, replace=True, station=station["id"])
+            return open_screen(device["id"], APP_ID, replace=True, station=station["id"], **view)
 
-        starred = self.favourites.of(device["id"])
         is_favourite = playing["id"] in starred
         previous, next_station = neighbours(stations, playing)
         playback = row(
@@ -158,6 +177,11 @@ class MusicBox:
             keys={"chup": switch_to(next_station), "chdown": switch_to(previous)},
             stream={"url": playing["stream"], "error": STREAM_ERROR_TEXT},
         )
+
+
+def favourites_first(stations, starred):
+    """Favourite stations first, each group keeping the list's order."""
+    return [s for s in stations if s["id"] in starred] + [s for s in stations if s["id"] not in starred]
 
 
 def label(station, starred):

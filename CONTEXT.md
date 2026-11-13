@@ -47,6 +47,6 @@ Ekran Music Box po wybraniu stacji: grająca stacja, przyciski nawigujące i po 
 _Avoid_: player, ekran stacji
 
 **Ulubione**:
-Stacje oznaczone gwiazdką przez widza na danym telewizorze; kolejność listy stacji się nie zmienia.
+Stacje oznaczone gwiazdką przez widza na danym telewizorze; są na początku listy stacji, a przycisk nad siatką stacji pokazuje tylko je.
 _Avoid_: zakładki, playlista
 

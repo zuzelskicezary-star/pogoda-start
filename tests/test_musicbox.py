@@ -301,11 +301,11 @@ class MusicBoxFavouritesTest(StoreTestCase):
         self.assertEqual(self.mark("a1", on=False), (200, {"station": "a1", "favourite": False}))
         self.assertEqual(blocks(self.grid(), "tile")[0]["label"], "RMF FM")
 
-    def test_star_does_not_change_order_or_fallback_text(self):
+    def test_favourites_come_first_on_the_grid(self):
         self.mark("c3")
         tiles = blocks(self.grid(), "tile")
-        self.assertEqual([t["id"] for t in tiles], ["station-a1", "station-b2", "station-c3"])
-        self.assertEqual(tiles[2]["image"]["text"], "Polskie Radio Trójka")
+        self.assertEqual([t["id"] for t in tiles], ["station-c3", "station-a1", "station-b2"])
+        self.assertEqual(tiles[0]["image"]["text"], "Polskie Radio Trójka")
 
     def test_favourites_belong_to_one_tv(self):
         self.mark("a1", device_id="TV-006")
@@ -343,4 +343,84 @@ class MusicBoxFavouritesOverHttpTest(ServerTestCase):
         status, body = self.post_json(FAVOURITES_PATH % "TV-006", {"station": "b2", "favourite": True})
         self.assertEqual((status, body), (200, {"station": "b2", "favourite": True}))
         _, screen = self.get_json("/api/devices/TV-006/apps/musicbox/screen")
-        self.assertEqual(blocks(screen, "tile")[1]["label"], "★ Radio ZET")
+        self.assertEqual(blocks(screen, "tile")[0]["label"], "★ Radio ZET")
+
+
+SCREEN_PATH = "/api/devices/TV-006/apps/musicbox/screen"
+
+
+def open_view(query="", replace=False):
+    action = {"type": "open_screen", "path": SCREEN_PATH + query}
+    if replace:
+        action["replace"] = True
+    return action
+
+
+class FavouritesFirstAndOnlyTest(StoreTestCase):
+    def setUp(self):
+        super().setUp()
+        stations = STATIONS + [station("d4", "Antyradio")]
+        self.api = Api(self.store, stations=StaticStations(stations))
+
+    def mark(self, *uuids):
+        for uuid in uuids:
+            self.api.handle("POST", FAVOURITES_PATH % "TV-006", body={"station": uuid, "favourite": True})
+
+    def screen(self, **params):
+        status, screen = self.api.handle("GET", SCREEN_PATH, params)
+        self.assertEqual(status, 200)
+        return screen
+
+    def ids(self, items):
+        return [i["id"].replace("station-", "") for i in items]
+
+    def test_player_follows_the_grid_order(self):
+        self.mark("d4", "b2")  # order: b2, d4 (source order among favourites), then a1, c3
+        player = self.screen(station="d4")
+        self.assertEqual(by_id(player, "next")["action"], go("a1"))
+        self.assertEqual(by_id(player, "prev")["action"], go("b2"))
+        self.assertEqual(self.ids(blocks(player, "list")[0]["children"]), ["b2", "a1", "c3"])
+
+    def test_grid_offers_favourites_only(self):
+        button = by_id(self.screen(), "favourites-only")
+        self.assertEqual(button["label"], "★ Tylko ulubione")
+        self.assertEqual(button["action"], open_view("?view=favourites", replace=True))
+
+    def test_favourites_view_shows_only_favourites(self):
+        self.mark("c3", "a1")
+        screen = self.screen(view="favourites")
+        tiles = blocks(screen, "tile")
+        self.assertEqual(self.ids(tiles), ["a1", "c3"])
+        self.assertEqual(screen["focus"], "station-a1")
+        self.assertEqual(tiles[0]["action"], open_view("?station=a1&view=favourites"))
+
+    def test_favourites_view_leads_back_to_all_stations(self):
+        button = by_id(self.screen(view="favourites"), "favourites-only")
+        self.assertEqual(button["label"], "Wszystkie stacje")
+        self.assertEqual(button["action"], open_view(replace=True))
+
+    def test_empty_favourites_view_explains_how_to_add(self):
+        screen = self.screen(view="favourites")
+        self.assertEqual(blocks(screen, "tile"), [])
+        self.assertIn("Nie masz jeszcze ulubionych stacji. Dodaj je w odtwarzaczu przyciskiem ☆.",
+                      [b["text"] for b in blocks(screen, "text")])
+        self.assertEqual(screen["focus"], "favourites-only")
+
+    def test_player_from_favourites_view_stays_within_favourites(self):
+        self.mark("a1", "c3", "d4")
+        player = self.screen(station="c3", view="favourites")
+        in_view = lambda uuid: open_view("?station=%s&view=favourites" % uuid, replace=True)
+        self.assertEqual(by_id(player, "next")["action"], in_view("d4"))
+        self.assertEqual(by_id(player, "prev")["action"], in_view("a1"))
+        self.assertEqual(player["keys"], {"chup": in_view("d4"), "chdown": in_view("a1")})
+        items = blocks(player, "list")[0]["children"]
+        self.assertEqual(self.ids(items), ["a1", "d4"])
+        self.assertEqual(items[0]["action"], in_view("a1"))
+
+    def test_favourites_view_wraps_around(self):
+        self.mark("a1", "c3")
+        player = self.screen(station="c3", view="favourites")
+        self.assertEqual(by_id(player, "next")["action"]["path"], SCREEN_PATH + "?station=a1&view=favourites")
+
+    def test_unknown_view_shows_all_stations(self):
+        self.assertEqual(len(blocks(self.screen(view="nope"), "tile")), 4)
