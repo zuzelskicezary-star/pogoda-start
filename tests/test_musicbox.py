@@ -135,3 +135,125 @@ class MusicBoxOverHttpTest(ServerTestCase):
         self.assertEqual(len(blocks(screen, "tile")), 3)
         json.dumps(screen)
         self.assertTrue(re.search(r"station=a1$", blocks(screen, "tile")[0]["action"]["path"]))
+
+
+class ChangingStations:
+    """A source whose list the test replaces, like a background refresh would."""
+
+    def __init__(self, stations):
+        self.stations = list(stations)
+
+    def current(self):
+        return list(self.stations)
+
+
+def by_id(screen, block_id):
+    (found,) = [b for b in walk(screen["root"]) if b.get("id") == block_id]
+    return found
+
+
+def player_path(device_id, uuid):
+    return "/api/devices/%s/apps/musicbox/screen?station=%s" % (device_id, uuid)
+
+
+def go(uuid, device_id="TV-006"):
+    return {"type": "open_screen", "path": player_path(device_id, uuid), "replace": True}
+
+
+class MusicBoxPlayerTest(StoreTestCase):
+    def setUp(self):
+        super().setUp()
+        self.stations = ChangingStations(STATIONS)
+        self.api = Api(self.store, stations=self.stations)
+
+    def player(self, uuid, device_id="TV-006"):
+        return self.api.handle("GET", "/api/devices/%s/apps/musicbox/screen" % device_id, {"station": uuid})
+
+    def test_player_plays_the_station_stream(self):
+        status, screen = self.player("b2")
+        self.assertEqual(status, 200)
+        self.assertEqual(screen["stream"]["url"], "https://stream.example/b2")
+        self.assertTrue(screen["stream"]["error"])
+
+    def test_player_shows_name_and_logo(self):
+        _, screen = self.player("a1")
+        self.assertIn("RMF FM", [b["text"] for b in blocks(screen, "text")])
+        self.assertIn("https://logo.example/a1.png", [b["url"] for b in blocks(screen, "image")])
+
+    def test_focus_starts_on_play_pause(self):
+        _, screen = self.player("a1")
+        self.assertEqual(screen["focus"], "playpause")
+        self.assertEqual(by_id(screen, "playpause")["action"], {"type": "toggle_pause"})
+
+    def test_volume_buttons_step_ten_percent(self):
+        _, screen = self.player("a1")
+        self.assertEqual(by_id(screen, "volume-down")["action"], {"type": "volume", "step": -10})
+        self.assertEqual(by_id(screen, "volume-up")["action"], {"type": "volume", "step": 10})
+
+    def test_back_button_goes_back_to_the_grid(self):
+        _, screen = self.player("a1")
+        self.assertEqual(by_id(screen, "back")["action"], {"type": "back"})
+
+    def test_previous_and_next_station(self):
+        _, screen = self.player("b2")
+        self.assertEqual(by_id(screen, "prev")["action"], go("a1"))
+        self.assertEqual(by_id(screen, "next")["action"], go("c3"))
+
+    def test_previous_and_next_wrap_around(self):
+        _, first = self.player("a1")
+        _, last = self.player("c3")
+        self.assertEqual(by_id(first, "prev")["action"], go("c3"))
+        self.assertEqual(by_id(last, "next")["action"], go("a1"))
+
+    def test_channel_keys_switch_stations(self):
+        _, screen = self.player("b2", device_id="TV-004")
+        self.assertEqual(screen["keys"], {"chup": go("c3", "TV-004"), "chdown": go("a1", "TV-004")})
+
+    def test_list_holds_the_other_stations(self):
+        _, screen = self.player("b2")
+        (station_list,) = blocks(screen, "list")
+        self.assertEqual([i["label"] for i in station_list["children"]], ["RMF FM", "Polskie Radio Trójka"])
+        self.assertEqual([i["action"] for i in station_list["children"]], [go("a1"), go("c3")])
+
+    def test_station_that_fell_out_of_the_list_keeps_playing(self):
+        self.player("b2")
+        self.stations.stations = [station("d4", "Antyradio"), station("a1", "RMF FM")]
+        status, screen = self.player("b2")
+        self.assertEqual(status, 200)
+        self.assertEqual(screen["stream"]["url"], "https://stream.example/b2")
+        self.assertEqual(by_id(screen, "next")["action"], go("d4"))
+        self.assertEqual(by_id(screen, "prev")["action"], go("a1"))
+        self.assertEqual([i["label"] for i in blocks(screen, "list")[0]["children"]], ["Antyradio", "RMF FM"])
+
+    def test_station_seen_only_on_the_grid_is_remembered(self):
+        self.api.handle("GET", "/api/devices/TV-006/apps/musicbox/screen")
+        self.stations.stations = []
+        status, screen = self.player("c3")
+        self.assertEqual(status, 200)
+        self.assertEqual(blocks(screen, "list")[0]["children"], [])
+
+    def test_unknown_station_is_404(self):
+        status, body = self.player("nope")
+        self.assertEqual(status, 404)
+        self.assertEqual(body["error"], "station_not_found")
+
+    def test_player_refreshes_every_minute(self):
+        _, screen = self.player("a1")
+        self.assertEqual(screen["refresh"], 60)
+
+    def test_grid_tiles_push_the_player(self):
+        _, grid_screen = self.api.handle("GET", "/api/devices/TV-006/apps/musicbox/screen")
+        self.assertNotIn("replace", blocks(grid_screen, "tile")[0]["action"])
+        self.assertNotIn("stream", grid_screen)
+
+
+class MusicBoxPlayerOverHttpTest(ServerTestCase):
+    def make_stations(self):
+        return StaticStations(STATIONS)
+
+    def test_player_over_http(self):
+        status, screen = self.get_json("/api/devices/TV-006/apps/musicbox/screen?station=c3")
+        self.assertEqual(status, 200)
+        self.assertEqual(screen["stream"]["url"], "https://stream.example/c3")
+        status, body = self.get_json("/api/devices/TV-006/apps/musicbox/screen?station=zzz")
+        self.assertEqual((status, body["error"]), (404, "station_not_found"))

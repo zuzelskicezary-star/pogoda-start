@@ -12,3 +12,5 @@ Kodu telewizora (`tv/`) po pierwszym wdrożeniu nie da się już zaktualizować,
 
 - Słownik bloków i akcji jest kontraktem na całe życie telewizora: nowej akcji (np. nagrywania) nie da się dodać później. Lepiej teraz dołożyć ogólną akcję niż jej zabraknąć.
 - Telewizor nie liczy nic po swojej stronie: np. "następna stacja" to przycisk z akcją "przejdź do ekranu", której cel wylicza backend.
+- "Przejdź do ekranu" może zastąpić bieżący ekran zamiast odłożyć go na stos (`replace`), żeby przełączanie stacji w odtwarzaczu nie wydłużało drogi powrotu: BACK zawsze wraca do siatki stacji.
+- Strumień do grania jest polem opisu ekranu (`stream`): telewizor gra go, chyba że gra już ten sam adres, więc odświeżenie ekranu nie przerywa dźwięku.

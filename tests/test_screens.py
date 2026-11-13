@@ -81,10 +81,10 @@ class DefaultScreenTest(StoreTestCase):
 
 class ScreenOverHttpTest(ServerTestCase):
     def test_screen_endpoint(self):
-        status, screen = self.get_json("/api/devices/TV-004/apps/musicbox/screen?station=x")
+        status, screen = self.get_json("/api/devices/TV-004/apps/news24/screen?station=x")
         self.assertEqual(status, 200)
         self.assertTrue({"app_id", "refresh", "focus", "keys", "root"} <= set(screen))
-        self.assertIn("Music Box", texts(screen))
+        self.assertIn("News 24", texts(screen))
 
     def test_screen_errors(self):
         self.assertEqual(self.get_json("/api/devices/TV-999/apps/musicbox/screen")[0], 404)

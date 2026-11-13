@@ -6,7 +6,12 @@ blocks and runs actions from a closed vocabulary; the backend decides the rest.
 Screen::
 
     {"app_id": str, "refresh": seconds, "focus": block id or None,
-     "keys": {"chup": action, "chdown": action}, "root": block}
+     "keys": {"chup": action, "chdown": action}, "root": block,
+     "stream": {"url": str, "error": str}}   # optional
+
+``stream`` is what should be playing on this screen: the TV starts it unless
+it already plays that url (so a refresh never interrupts the sound) and shows
+``error`` when the audio fails. A screen without ``stream`` leaves audio as is.
 
 ``focus`` names the button focused on entry; ``keys`` maps CH+/CH- to actions
 (an unmapped key keeps its TV meaning); the TV fetches the screen again every
@@ -22,13 +27,20 @@ it the block takes its natural size):
   the picture, or ``text`` on ``color`` when there is no url or it fails to load
 - ``{"type": "tile", "id": str, "label": str, "image": image, "action": action}``
 - ``{"type": "grid", "columns": int, "children": [block, ...]}``
+- ``{"type": "list", "children": [block, ...]}``: a scrolling column of
+  focusable items (buttons or tiles)
 
 ``focus`` may name any focusable block (button, tile).
 
 Actions:
 
-- ``{"type": "open_screen", "path": "/api/devices/<id>/apps/<app>/screen?..."}``
+- ``{"type": "open_screen", "path": "/api/devices/<id>/apps/<app>/screen?...",
+  "replace": true}``: ``replace`` (optional) swaps the current screen instead of
+  stacking the new one, so ``back`` skips it
 - ``{"type": "back"}``
+- ``{"type": "play", "url": str, "error": str}``: play a stream from its source
+- ``{"type": "toggle_pause"}``
+- ``{"type": "volume", "step": int}``: change the volume by ``step`` percent
 """
 
 from urllib.parse import quote, urlencode
@@ -70,23 +82,45 @@ def grid(columns, *children, **extra):
     return dict(type="grid", columns=columns, children=list(children), **extra)
 
 
-def open_screen(device_id, app_id, **params):
+def item_list(*children, **extra):
+    return dict(type="list", children=list(children), **extra)
+
+
+def open_screen(device_id, app_id, replace=False, **params):
     path = screen_path(device_id, app_id)
     if params:
         path += "?" + urlencode(params)
-    return {"type": "open_screen", "path": path}
+    action = {"type": "open_screen", "path": path}
+    if replace:
+        action["replace"] = True
+    return action
 
 
 def back():
     return {"type": "back"}
 
 
+def play(url, error):
+    return {"type": "play", "url": url, "error": error}
+
+
+def toggle_pause():
+    return {"type": "toggle_pause"}
+
+
+def volume(step):
+    return {"type": "volume", "step": step}
+
+
 def screen_path(device_id, app_id):
     return "/api/devices/%s/apps/%s/screen" % (quote(device_id, safe=""), quote(app_id, safe=""))
 
 
-def screen(app_id, root, focus=None, keys=None, refresh=DEFAULT_REFRESH_S):
-    return {"app_id": app_id, "refresh": refresh, "focus": focus, "keys": keys or {}, "root": root}
+def screen(app_id, root, focus=None, keys=None, refresh=DEFAULT_REFRESH_S, stream=None):
+    described = {"app_id": app_id, "refresh": refresh, "focus": focus, "keys": keys or {}, "root": root}
+    if stream:
+        described["stream"] = stream
+    return described
 
 
 # --- screens ----------------------------------------------------------------

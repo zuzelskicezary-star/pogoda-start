@@ -7,6 +7,7 @@ so the API can be exercised without an HTTP server.
 import re
 
 from backend import musicbox
+from backend.musicbox import StationNotFound
 from backend.catalog import get_apps_for_device
 from backend.ota import OtaService, UnknownBuild
 from backend.registry import DeviceNotFound, DeviceRegistry
@@ -47,6 +48,8 @@ class Api:
                 return handler(query=query, body=body, **match.groupdict())
             except DeviceNotFound as exc:
                 return 404, {"error": "device_not_found", "device_id": exc.args[0]}
+            except StationNotFound as exc:
+                return 404, {"error": "station_not_found", "station": exc.args[0]}
             except AppNotFound as exc:
                 return 404, {"error": "app_not_found", "app_id": exc.args[0]}
             except UnknownBuild as exc:

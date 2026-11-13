@@ -18,8 +18,13 @@
     channel: 1,
     updating: false,
     lastCheck: null,
-    app: null /* open app: { id, name, stack: [{ path, focusId }], screen, focusId, seq, timer } */
+    app: null, /* open app: { id, name, stack: [{ path, focusId }], screen, focusId, seq, timer } */
+    stream: null, /* the stream being played: { url, error } */
+    volume: 100 /* percent, kept for the session */
   };
+
+  var audio = new Audio();
+  var audioMessageTimer = null;
 
   var el = function (id) { return document.getElementById(id); };
 
@@ -158,6 +163,9 @@
     if (block.type === "row" || block.type === "column") {
       node = div("blk-" + block.type);
       appendChildren(node, block.children);
+    } else if (block.type === "list") {
+      node = div("blk-list");
+      appendChildren(node, block.children);
     } else if (block.type === "grid") {
       node = div("blk-grid");
       node.style.gridTemplateColumns = "repeat(" + Math.max(1, block.columns || 1) + ", minmax(0, 1fr))";
@@ -229,6 +237,7 @@
       app.screen = screen;
       if (fresh) { app.focusId = entry.focusId || screen.focus; }
       renderAppScreen();
+      if (screen.stream) { playStream(screen.stream, fresh); }
       scheduleRefresh(screen.refresh);
     }, function (err) {
       if (tv.app !== app || app.seq !== seq) { return; }
@@ -241,12 +250,17 @@
     });
   }
 
-  function openScreen(path) {
+  /* replace: swap the current screen instead of stacking the new one. */
+  function openScreen(path, replace) {
     var app = tv.app;
     var next = { path: path, focusId: null };
     loadScreen(next, true, function () {
-      app.stack[app.stack.length - 1].focusId = app.focusId;
-      app.stack.push(next);
+      if (replace) {
+        app.stack[app.stack.length - 1] = next;
+      } else {
+        app.stack[app.stack.length - 1].focusId = app.focusId;
+        app.stack.push(next);
+      }
     });
   }
 
@@ -263,11 +277,98 @@
   function runAction(action) {
     if (!action || !tv.app) { return; }
     if (action.type === "open_screen" && action.path) {
-      openScreen(action.path);
+      openScreen(action.path, action.replace === true);
     } else if (action.type === "back") {
       goBack();
+    } else if (action.type === "play" && action.url) {
+      playStream(action, true);
+    } else if (action.type === "toggle_pause") {
+      togglePause();
+    } else if (action.type === "volume" && typeof action.step === "number") {
+      changeVolume(action.step);
     }
   }
+
+  /* ---------- audio: streams play straight from the broadcaster ---------- */
+
+  function showAudioMessage(message, kind, ms) {
+    var box = el("audio-msg");
+    clearTimeout(audioMessageTimer);
+    box.textContent = message;
+    box.className = "audio-msg " + (kind || "");
+    box.hidden = false;
+    if (ms) { audioMessageTimer = setTimeout(hideAudioMessage, ms); }
+  }
+
+  function hideAudioMessage() {
+    clearTimeout(audioMessageTimer);
+    el("audio-msg").hidden = true;
+  }
+
+  function showStreamError() {
+    if (tv.stream) { showAudioMessage(tv.stream.error || "Błąd odtwarzania", "error"); }
+  }
+
+  function startAudio() {
+    audio.volume = tv.volume / 100;
+    var playing = audio.play();
+    if (playing && playing.catch) {
+      playing.catch(function (err) {
+        if (err.name === "AbortError") { return; }
+        if (err.name === "NotAllowedError") {
+          log("Przeglądarka wstrzymała autoodtwarzanie", "warn");
+          showAudioMessage("Naciśnij OK na „Play / pauza”, aby słuchać", "");
+          return;
+        }
+        showStreamError();
+      });
+    }
+  }
+
+  /* A new url starts playing. The same url keeps playing undisturbed, so a
+   * screen refresh never interrupts the sound; entering a screen anew
+   * (fresh) resumes it if it was paused. */
+  function playStream(stream, fresh) {
+    if (tv.stream && tv.stream.url === stream.url) {
+      tv.stream.error = stream.error;
+      if (fresh && audio.paused) { hideAudioMessage(); startAudio(); }
+      return;
+    }
+    tv.stream = { url: stream.url, error: stream.error };
+    hideAudioMessage();
+    audio.src = stream.url;
+    startAudio();
+    log("Odtwarzanie: " + stream.url);
+  }
+
+  function stopAudio() {
+    tv.stream = null;
+    hideAudioMessage();
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+  }
+
+  function togglePause() {
+    if (!tv.stream) { return; }
+    if (audio.paused) {
+      hideAudioMessage();
+      startAudio();
+    } else {
+      audio.pause();
+      showAudioMessage("Pauza", "", 1500);
+    }
+  }
+
+  function changeVolume(step) {
+    tv.volume = Math.min(100, Math.max(0, Math.round(tv.volume + step)));
+    audio.volume = tv.volume / 100;
+    showAudioMessage("Głośność " + tv.volume + "%", "", 1500);
+  }
+
+  audio.addEventListener("error", function () {
+    if (tv.stream && audio.getAttribute("src")) { showStreamError(); }
+  });
 
   /* Arrows move focus to the nearest focusable block in that direction. */
   function moveFocus(key) {
@@ -319,6 +420,7 @@
 
   function closeApp() {
     if (tv.app) { clearTimeout(tv.app.timer); }
+    if (tv.stream) { stopAudio(); }
     tv.app = null;
     setView("channel");
   }
