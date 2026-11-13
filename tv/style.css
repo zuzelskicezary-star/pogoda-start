@@ -97,6 +97,33 @@ html, body {
 .player-hint { margin-top: 8px; font-size: 13px; opacity: .6; }
 
 .standby { background: #000; }
+
+/* App screens: blocks described by the backend (ADR 0001). */
+.appscreen {
+  display: none;
+  position: absolute;
+  inset: 37px 0 0 0;
+  padding: 18px;
+  background: repeating-linear-gradient(45deg, #1b2236 0 12px, #18203a 12px 24px);
+}
+.appscreen > * { flex: 1 1 0; min-width: 0; }
+.blk-row, .blk-column { display: flex; gap: 8px; min-width: 0; min-height: 0; }
+.blk-row { flex-direction: row; align-items: center; justify-content: center; }
+.blk-row > .blk-column, .blk-column > .blk-row { align-self: stretch; }
+.blk-column { flex-direction: column; align-items: center; justify-content: center; }
+.blk-text.title { font-size: 34px; font-weight: 700; }
+.blk-text.body { font-size: 16px; }
+.blk-text.hint { font-size: 13px; opacity: .6; }
+.blk-button {
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: #2b3352;
+  font-weight: 600;
+  cursor: pointer;
+  outline: 3px solid transparent;
+  transition: transform .12s, outline-color .12s;
+}
+.blk-button.focused { outline-color: #fff; transform: scale(1.06); }
 .standby .led {
   position: absolute;
   bottom: 10px;
@@ -110,6 +137,8 @@ html, body {
 
 .screen[data-state="watching"] .home { display: none; }
 .screen[data-state="watching"] .player { display: flex; }
+.screen[data-state="watching"][data-view="app"] .player { display: none; }
+.screen[data-state="watching"][data-view="app"] .appscreen { display: flex; }
 .screen[data-state="standby"] .standby { display: block; }
 
 .banner {

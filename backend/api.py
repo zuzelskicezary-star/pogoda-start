@@ -9,6 +9,7 @@ import re
 from backend.catalog import get_apps_for_device
 from backend.ota import OtaService, UnknownBuild
 from backend.registry import DeviceNotFound, DeviceRegistry
+from backend.screens import AppNotFound, build_screen
 
 
 class Api:
@@ -22,6 +23,7 @@ class Api:
             ("GET", r"/api/devices/(?P<device_id>[\w-]+)", self.get_device),
             ("POST", r"/api/devices/(?P<device_id>[\w-]+)/report", self.report),
             ("GET", r"/api/devices/(?P<device_id>[\w-]+)/apps", self.device_apps),
+            ("GET", r"/api/devices/(?P<device_id>[\w-]+)/apps/(?P<app_id>[\w-]+)/screen", self.app_screen),
             ("POST", r"/api/ota/check", self.ota_check),
             ("POST", r"/api/ota/download", self.ota_download),
         ]
@@ -41,6 +43,8 @@ class Api:
                 return handler(query=query, body=body, **match.groupdict())
             except DeviceNotFound as exc:
                 return 404, {"error": "device_not_found", "device_id": exc.args[0]}
+            except AppNotFound as exc:
+                return 404, {"error": "app_not_found", "app_id": exc.args[0]}
             except UnknownBuild as exc:
                 return 404, {"error": "unknown_build", "build": exc.args[0]}
             except (KeyError, TypeError, ValueError) as exc:
@@ -76,6 +80,11 @@ class Api:
     def device_apps(self, query, body, device_id):
         device = self.registry.get(device_id)
         return 200, {"device_id": device_id, "apps": get_apps_for_device(self.store, device)}
+
+    def app_screen(self, query, body, device_id, app_id):
+        device = self.registry.get(device_id)
+        apps = get_apps_for_device(self.store, device)
+        return 200, build_screen(device, apps, app_id, query)
 
     def ota_check(self, query, body):
         update = self.ota.check(

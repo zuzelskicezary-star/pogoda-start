@@ -17,7 +17,8 @@
     focus: 0,
     channel: 1,
     updating: false,
-    lastCheck: null
+    lastCheck: null,
+    app: null /* open app: { id, name, stack: [{ path, focusId }], screen, focusId, seq, timer } */
   };
 
   var el = function (id) { return document.getElementById(id); };
@@ -92,30 +93,218 @@
     api("POST", "/api/devices/" + deviceId + "/report", { state: state }).catch(function () {});
   }
 
-  /* ---------- remote control ---------- */
+  /* ---------- app screens (ADR 0001) ----------
+   * The backend describes every app screen with blocks and actions from a
+   * closed vocabulary. Unknown blocks are skipped and unknown actions ignored,
+   * so a newer backend never breaks this client.
+   */
+
+  function setView(view) {
+    el("screen").setAttribute("data-view", view);
+  }
+
+  function renderBlock(block) {
+    var node;
+    if (!block) { return null; }
+    if (block.type === "row" || block.type === "column") {
+      node = document.createElement("div");
+      node.className = "blk-" + block.type;
+      (block.children || []).forEach(function (child) {
+        var c = renderBlock(child);
+        if (!c) { return; }
+        if (typeof child.flex === "number") { c.style.flex = child.flex + " 1 0"; }
+        node.appendChild(c);
+      });
+    } else if (block.type === "text") {
+      node = document.createElement("div");
+      node.className = "blk-text " + (block.style || "body");
+      node.textContent = block.text;
+    } else if (block.type === "button") {
+      node = document.createElement("div");
+      node.className = "blk-button focusable";
+      node.textContent = block.label;
+      node.setAttribute("data-id", block.id);
+      node.addEventListener("click", function () {
+        if (!tv.app) { return; }
+        tv.app.focusId = block.id;
+        markFocus();
+        runAction(block.action);
+      });
+    } else {
+      return null;
+    }
+    return node;
+  }
+
+  function focusables() {
+    return Array.prototype.slice.call(el("appscreen").querySelectorAll(".focusable"));
+  }
+
+  function focusedNode() {
+    var id = tv.app && tv.app.focusId;
+    return focusables().filter(function (n) { return n.getAttribute("data-id") === id; })[0] || null;
+  }
+
+  function markFocus() {
+    var current = focusedNode();
+    focusables().forEach(function (n) { n.classList.toggle("focused", n === current); });
+  }
+
+  function renderAppScreen() {
+    var root = el("appscreen");
+    root.innerHTML = "";
+    var node = tv.app.screen && renderBlock(tv.app.screen.root);
+    if (node) { root.appendChild(node); }
+    if (!focusedNode()) { tv.app.focusId = tv.app.screen ? tv.app.screen.focus : null; }
+    markFocus();
+  }
+
+  function scheduleRefresh(seconds) {
+    var app = tv.app;
+    clearTimeout(app.timer);
+    app.timer = setTimeout(function () {
+      if (tv.app === app) { loadScreen(topEntry(), false); }
+    }, Math.max(1, seconds || 60) * 1000);
+  }
+
+  function topEntry() {
+    return tv.app.stack[tv.app.stack.length - 1];
+  }
+
+  /* Fetches and shows the screen of `entry`.
+   * fresh: a newly entered screen (focus from its description, or the one
+   * remembered when going back); otherwise a refresh that keeps focus.
+   * commit: updates the navigation stack, only once the fetch succeeded,
+   * so a failed fetch leaves both the screen and the stack as they were. */
+  function loadScreen(entry, fresh, commit) {
+    var app = tv.app;
+    var seq = ++app.seq;
+    clearTimeout(app.timer);
+    api("GET", entry.path).then(function (screen) {
+      if (tv.app !== app || app.seq !== seq) { return; }
+      if (commit) { commit(); }
+      app.screen = screen;
+      if (fresh) { app.focusId = entry.focusId || screen.focus; }
+      renderAppScreen();
+      scheduleRefresh(screen.refresh);
+    }, function (err) {
+      if (tv.app !== app || app.seq !== seq) { return; }
+      log("Nie można pobrać ekranu " + app.name + ": " + err.message, "warn");
+      if (!app.screen) {
+        app.screen = { root: { type: "text", style: "title", text: app.name }, focus: null, keys: {} };
+        renderAppScreen();
+      }
+      scheduleRefresh(app.screen.refresh);
+    });
+  }
+
+  function openScreen(path) {
+    var app = tv.app;
+    var next = { path: path, focusId: null };
+    loadScreen(next, true, function () {
+      app.stack[app.stack.length - 1].focusId = app.focusId;
+      app.stack.push(next);
+    });
+  }
+
+  function goBack() {
+    var app = tv.app;
+    if (app.stack.length > 1) {
+      loadScreen(app.stack[app.stack.length - 2], true, function () { app.stack.pop(); });
+    } else {
+      closeApp();
+      setState("menu");
+    }
+  }
+
+  function runAction(action) {
+    if (!action || !tv.app) { return; }
+    if (action.type === "open_screen" && action.path) {
+      openScreen(action.path);
+    } else if (action.type === "back") {
+      goBack();
+    }
+  }
+
+  /* Arrows move focus to the nearest focusable block in that direction. */
+  function moveFocus(key) {
+    var nodes = focusables();
+    if (!nodes.length) { return; }
+    var current = focusedNode();
+    if (!current) {
+      tv.app.focusId = nodes[0].getAttribute("data-id");
+      markFocus();
+      return;
+    }
+    var from = current.getBoundingClientRect();
+    var fx = from.left + from.width / 2, fy = from.top + from.height / 2;
+    var best = null, bestScore = Infinity;
+    nodes.forEach(function (n) {
+      if (n === current) { return; }
+      var r = n.getBoundingClientRect();
+      var dx = r.left + r.width / 2 - fx, dy = r.top + r.height / 2 - fy;
+      var main = { left: -dx, right: dx, up: -dy, down: dy }[key];
+      var side = (key === "left" || key === "right") ? Math.abs(dy) : Math.abs(dx);
+      if (!(main > 0)) { return; }
+      var score = main + 2 * side;
+      if (score < bestScore) { bestScore = score; best = n; }
+    });
+    if (best) {
+      tv.app.focusId = best.getAttribute("data-id");
+      markFocus();
+    }
+  }
 
   function openApp() {
     var app = tv.apps[tv.focus];
     if (!app) { return; }
-    el("player-title").textContent = app.name;
+    closeApp();
+    tv.app = {
+      id: app.id,
+      name: app.name,
+      stack: [{ path: "/api/devices/" + encodeURIComponent(deviceId) + "/apps/" + encodeURIComponent(app.id) + "/screen", focusId: null }],
+      screen: null,
+      focusId: null,
+      seq: 0,
+      timer: null
+    };
+    el("appscreen").innerHTML = "";
+    setView("app");
     setState("watching");
+    loadScreen(topEntry(), true);
   }
 
+  function closeApp() {
+    if (tv.app) { clearTimeout(tv.app.timer); }
+    tv.app = null;
+    setView("channel");
+  }
+
+  /* ---------- remote control ---------- */
+
   function watchChannel() {
+    closeApp();
     el("player-title").textContent = "Kanał " + tv.channel;
     setState("watching");
   }
 
   function press(key) {
     if (key === "power") {
+      closeApp();
       setState(tv.state === "standby" ? "menu" : "standby");
       log(tv.state === "standby" ? "Tryb czuwania" : "Włączono");
       return;
     }
     if (tv.state === "standby") { return; }
 
-    if (key === "home" || key === "back") {
+    var keys = tv.app && tv.app.screen && tv.app.screen.keys;
+    if (key === "back" && tv.app) {
+      goBack();
+    } else if (key === "home" || key === "back") {
+      closeApp();
       setState("menu");
+    } else if ((key === "chup" || key === "chdown") && keys && keys[key]) {
+      runAction(keys[key]);
     } else if (key === "chup" || key === "chdown") {
       tv.channel = Math.max(1, tv.channel + (key === "chup" ? 1 : -1));
       watchChannel();
@@ -127,6 +316,13 @@
       if (key === "down") { tv.focus = Math.min(n - 1, tv.focus + GRID_COLUMNS); }
       if (key === "ok") { openApp(); }
       renderGrid();
+    } else if (tv.app) {
+      if (key === "ok") {
+        var node = focusedNode();
+        if (node) { node.click(); }
+      } else {
+        moveFocus(key);
+      }
     }
   }
 
